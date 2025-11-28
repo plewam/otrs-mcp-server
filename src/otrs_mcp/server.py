@@ -3,6 +3,7 @@
 import os
 import json
 import sys
+import logging
 from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass
 import httpx
@@ -12,6 +13,22 @@ from mcp.server.fastmcp import FastMCP
 
 dotenv.load_dotenv()
 mcp = FastMCP("OTRS API MCP")
+
+
+def _configure_logger() -> logging.Logger:
+    logger = logging.getLogger("otrs_mcp.api")
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter("[OTRS API] %(levelname)s %(message)s")
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    level_name = os.getenv("OTRS_LOG_LEVEL", "INFO").upper()
+    logger.setLevel(getattr(logging, level_name, logging.INFO))
+    logger.propagate = False
+    return logger
+
+
+api_logger = _configure_logger()
 
 @dataclass
 class OTRSConfig:
@@ -40,25 +57,68 @@ def get_ticket_search_web_url() -> str:
     """Generate the web interface URL for ticket search"""
     return f"{config.web_base_url}/index.pl?Action=AgentTicketSearch"
 
+def _sanitize_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    sanitized: Dict[str, Any] = {}
+    for key, value in payload.items():
+        if isinstance(value, dict):
+            sanitized[key] = _sanitize_payload(value)
+        elif isinstance(value, list):
+            sanitized[key] = [
+                _sanitize_payload(item) if isinstance(item, dict) else item
+                for item in value
+            ]
+        elif "password" in key.lower():
+            sanitized[key] = "***"
+        else:
+            sanitized[key] = value
+    return sanitized
+
+
 async def make_api_request_with_auth(operation: str, data: Dict[str, Any] = None) -> Dict[str, Any]:
     """Make API request using UserLogin/Password authentication (no session) - matches working test exactly"""
     url = f"{config.base_url}/{operation}"
-    
+
     request_data = {
         "UserLogin": config.username,
         "Password": config.password
     }
     if data:
         request_data.update(data)
-    
-    async with httpx.AsyncClient(verify=config.verify_ssl, follow_redirects=True, timeout=30) as client:
-        response = await client.post(
-            url,
-            json=request_data,
-            headers={"Content-Type": "application/json", "Accept": "application/json"}
+
+    api_logger.info(
+        "Sending %s request to %s with payload: %s",
+        operation,
+        url,
+        json.dumps(_sanitize_payload(request_data)),
+    )
+
+    try:
+        async with httpx.AsyncClient(verify=config.verify_ssl, follow_redirects=True, timeout=30) as client:
+            response = await client.post(
+                url,
+                json=request_data,
+                headers={"Content-Type": "application/json", "Accept": "application/json"}
+            )
+            api_logger.info("%s response status: %s", operation, response.status_code)
+            response.raise_for_status()
+            parsed = response.json()
+            api_logger.debug(
+                "%s response body: %s",
+                operation,
+                json.dumps(parsed, ensure_ascii=False)[:2000],
+            )
+            return parsed
+    except httpx.HTTPStatusError as exc:
+        api_logger.error(
+            "%s returned HTTP %s: %s",
+            operation,
+            exc.response.status_code,
+            exc.response.text,
         )
-        response.raise_for_status()
-        return response.json()
+        raise
+    except httpx.HTTPError as exc:
+        api_logger.error("HTTP error during %s: %s", operation, exc)
+        raise
 
 # ... existing code ...
 
