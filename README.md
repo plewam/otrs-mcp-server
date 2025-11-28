@@ -159,18 +159,51 @@ Then edit your Claude Desktop config file and add the server configuration:
 
 > Note: if you see `Error: spawn uv ENOENT` in [Claude Desktop](https://claude.ai/desktop), you may need to specify the full path to `uv` or set the environment variable `NO_UV=1` in the configuration.
 
+#### Streamable HTTP / SSE Transports
+
+The server can also run using persistent transports for long-lived clients. Use either CLI flags or the new `MCP_*` environment variables to configure the transport, listening interface, and port:
+
+```bash
+# Run streamable HTTP on all interfaces via CLI flags
+uv run src/otrs_mcp/main.py --transport streamable-http --host 0.0.0.0 --port 8811
+
+# Equivalent environment variable setup
+export MCP_TRANSPORT=streamable-http
+export MCP_SERVER_HOST=0.0.0.0
+export MCP_SERVER_PORT=8811
+uv run src/otrs_mcp/main.py
+```
+
+When `streamable-http` is enabled, point compatible clients (Claude Desktop ≥ 1.4, Bricks, etc.) at `http://<host>:<port>/mcp`. Example Claude Desktop entry:
+
+```json
+{
+  "mcpServers": {
+    "otrs-http": {
+      "type": "http",
+      "url": "http://127.0.0.1:8811/mcp"
+    }
+  }
+}
+```
+
+The default transport remains `stdio`, which is ideal for process-based integrations that communicate over pipes.
+
 ## Environment Variables
 
-| Variable                | Required | Default        | Description                         |
-| ----------------------- | -------- | -------------- | ----------------------------------- |
-| `OTRS_BASE_URL`         | ✅       | -              | Base URL for OTRS webservice        |
-| `OTRS_USERNAME`         | ✅       | -              | OTRS username                       |
-| `OTRS_PASSWORD`         | ✅       | -              | OTRS password                       |
-| `OTRS_VERIFY_SSL`       | ❌       | `false`        | Enable SSL certificate verification |
-| `OTRS_DEFAULT_QUEUE`    | ❌       | `Raw`          | Default queue for new tickets       |
-| `OTRS_DEFAULT_STATE`    | ❌       | `new`          | Default state for new tickets       |
-| `OTRS_DEFAULT_PRIORITY` | ❌       | `3 normal`     | Default priority for new tickets    |
-| `OTRS_DEFAULT_TYPE`     | ❌       | `Unclassified` | Default type for new tickets        |
+| Variable                | Required | Default        | Description                                                  |
+| ----------------------- | -------- | -------------- | ------------------------------------------------------------ |
+| `OTRS_BASE_URL`         | ✅       | -              | Base URL for OTRS webservice                                 |
+| `OTRS_USERNAME`         | ✅       | -              | OTRS username                                                |
+| `OTRS_PASSWORD`         | ✅       | -              | OTRS password                                                |
+| `OTRS_VERIFY_SSL`       | ❌       | `false`        | Enable SSL certificate verification                          |
+| `OTRS_DEFAULT_QUEUE`    | ❌       | `Raw`          | Default queue for new tickets                                |
+| `OTRS_DEFAULT_STATE`    | ❌       | `new`          | Default state for new tickets                                |
+| `OTRS_DEFAULT_PRIORITY` | ❌       | `3 normal`     | Default priority for new tickets                             |
+| `OTRS_DEFAULT_TYPE`     | ❌       | `Unclassified` | Default type for new tickets                                 |
+| `MCP_TRANSPORT`         | ❌       | `stdio`        | MCP transport to expose (`stdio`, `sse`, `streamable-http`)  |
+| `MCP_SERVER_HOST`       | ❌       | `127.0.0.1`    | Interface/IP for HTTP transports (also honors `MCP_HOST`)    |
+| `MCP_SERVER_PORT`       | ❌       | `8000`         | Port for HTTP transports (also honors `MCP_PORT`/`MCP_HTTP_*`)|
 
 ## Development
 
